@@ -28,7 +28,7 @@ This README consolidates content from server.md, client_cli.md, config.md, and p
 +------------^-----------+                         +-------------^-------------+
              |                                                         |
              |  Calls tools implemented in Python classes              |
-             |  (asset_price_tool.py, sentiment_tool.py, etc.)        |
+             |  (asset_price_tool.py, sentiment_tool.py, etc.)         |
              v                                                         |
   +----------------------+                                          Clients
   |  DSPy-based tools    |                                          (HTTP/CLI)
@@ -67,7 +67,7 @@ This README consolidates content from server.md, client_cli.md, config.md, and p
 ## Prerequisites
 
 - Python 3.10+
-- Go 1.20+
+- Go 1.20+ (I used 1.24.5)
 - PostgreSQL (for regulatory analyzer)
 - Optional: Ollama running locally if you choose Ollama models
 - Optional: OpenRouter API key if you choose OpenRouter models
@@ -106,24 +106,7 @@ Note: If your environment requires it, you can use psycopg2-binary for convenien
 
 3. Environment variables (.env)
 
-Create a .env in the repo root with the following keys as needed:
-
-# LLM config (example using OpenRouter)
-
-CHATBOT_KEY=your_openrouter_key
-
-# Alpaca API for price data
-
-ALPACA_API_KEY=your_alpaca_key
-ALPACA_API_SECRET=your_alpaca_secret
-
-# PostgreSQL for regulatory analyzer
-
-DB_NAME=ai_law_db
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_HOST=localhost
-DB_PORT=5432
+There is an example of this in .env.example with example configurations. 
 
 # Optional Ollama and/or NIM settings are configured via config.py
 
@@ -239,10 +222,6 @@ Once populated, the RegulatoryAnalyzer performs a two-stage DSPy pipeline:
 1. Retrieve and summarize regulatory fragments relevant to a question.
 2. Apply them to a specific ticker’s business context (impact and risk).
 
-## Notes on launch script
-
-- launch_servers.zsh currently contains hard-coded conda env and path examples for one machine. Prefer running the two servers manually (see Quick start), or adapt the script to your environment.
-
 ## Development tips and gotchas
 
 - Start Python first, then Go (Go proxies to Python).
@@ -251,15 +230,6 @@ Once populated, the RegulatoryAnalyzer performs a two-stage DSPy pipeline:
 - For Alpaca API, ensure your symbol is supported; crypto symbols may require "/USD" pairs.
 - On Windows, use psycopg2-binary for easier local setup.
 - If using Ollama, run `ollama serve` and confirm models with `ollama list`.
-
-## Roadmap / suggestions
-
-- Add requirements.txt and go.mod/go.sum for reproducible installs.
-- Provide Dockerfiles and docker-compose for Python, Go, and Postgres.
-- Add unit/integration tests for tools and endpoints.
-- Harden input validation across endpoints.
-- Replace hard-coded paths in launch_servers.zsh.
-- Document environment variable matrix in a single place.
 
 ## Disclaimer
 
