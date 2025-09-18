@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import dspy
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from asset_price_tool import AssetPriceAnalyzer
@@ -34,6 +34,15 @@ dspy.settings.configure(lm=lm)
 
 
 app = FastAPI(title="MCP Financial Analysis Server")
+
+GO_SERVER_URL = os.getenv("GO_SERVER_URL", "http://localhost:8080")
+API_KEY = os.getenv("API_KEY", "")
+
+
+def auth_headers():
+    if API_KEY:
+        return {"Authorization": f"Bearer {API_KEY}"}
+    return {}
 
 
 # MCP Protocol Models
@@ -889,6 +898,71 @@ async def health_check():
         "available_tools": len(tool_registry.get_all_tools()),
         "mcp_compliant": True,
     }
+
+
+# -------------------- Job Worker Endpoint --------------------
+
+
+@app.post("/process")
+async def process(req: Request):
+    payload = await req.json()
+    job_id = payload.get("job_id")
+    query = payload.get("query")
+    if not job_id or not query:
+        raise HTTPException(status_code=400, detail="job_id and query are required")
+
+    # update: running
+    try:
+        import requests
+
+        requests.put(
+            f"{GO_SERVER_URL}/jobs/{job_id}/update",
+            json={"status": "running", "logs": "started"},
+            headers=auth_headers(),
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+    # background work
+    import threading
+
+    def worker(jid: str, q: str):
+        import time
+
+        try:
+            time.sleep(1.5)
+            import requests as rq
+
+            rq.put(
+                f"{GO_SERVER_URL}/jobs/{jid}/update",
+                json={"status": "running", "logs": "collecting data"},
+                headers=auth_headers(),
+                timeout=5,
+            )
+            time.sleep(1.5)
+            result = f"analysis for: {q}"
+            rq.put(
+                f"{GO_SERVER_URL}/jobs/{jid}/update",
+                json={"status": "completed", "result": result, "logs": "done"},
+                headers=auth_headers(),
+                timeout=5,
+            )
+        except Exception:
+            try:
+                import requests as rq
+
+                rq.put(
+                    f"{GO_SERVER_URL}/jobs/{jid}/update",
+                    json={"status": "failed", "logs": "worker exception"},
+                    headers=auth_headers(),
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
+    threading.Thread(target=worker, args=(job_id, query), daemon=True).start()
+    return {"ok": True}
 
 
 if __name__ == "__main__":

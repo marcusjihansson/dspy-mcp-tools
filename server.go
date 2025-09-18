@@ -919,6 +919,106 @@ func (s *Server) handleExamples(w http.ResponseWriter, r *http.Request) {
 	s.respondWithJSON(w, examples)
 }
 
+// -------------------- Job Orchestration --------------------
+
+func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.respondWithError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	defer r.Body.Close()
+	var body struct {
+		Query string `json:"query"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 10<<20)).Decode(&body); err != nil || strings.TrimSpace(body.Query) == "" {
+		s.respondWithError(w, "Invalid JSON body (query required)", http.StatusBadRequest)
+		return
+	}
+	job, err := CreateJob(body.Query)
+	if err != nil {
+		s.respondWithError(w, "Failed to create job", http.StatusInternalServerError)
+		return
+	}
+	// Forward to FastAPI worker
+	go func(jid, q string) {
+		payload := map[string]string{"job_id": jid, "query": q}
+		buf := new(bytes.Buffer)
+		_ = json.NewEncoder(buf).Encode(payload)
+		fastapiURL := os.Getenv("FASTAPI_URL")
+		if fastapiURL == "" {
+			fastapiURL = fmt.Sprintf("http://%s:%s", s.config.PythonHost, s.config.PythonPort)
+		}
+		_, _ = http.Post(fastapiURL+"/process", "application/json", buf)
+	}(job.ID, body.Query)
+
+	s.respondWithJSON(w, map[string]string{"jobID": job.ID})
+}
+
+func (s *Server) handleJobRoutes(w http.ResponseWriter, r *http.Request) {
+	// Expect /jobs/{id}/update, /jobs/{id}/status, /jobs/{id}/result
+	path := strings.TrimPrefix(r.URL.Path, "/jobs/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		http.NotFound(w, r)
+		return
+	}
+	id := parts[0]
+	action := parts[1]
+
+	switch {
+	case r.Method == http.MethodPut && action == "update":
+		var body struct {
+			Status *string `json:"status"`
+			Result *string `json:"result"`
+			Log    *string `json:"logs"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 10<<20)).Decode(&body); err != nil {
+			s.respondWithError(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if err := UpdateJobPartial(id, body.Status, body.Result); err != nil {
+			s.respondWithError(w, "Failed to update job", http.StatusInternalServerError)
+			return
+		}
+		if body.Log != nil && strings.TrimSpace(*body.Log) != "" {
+			_ = AppendJobLog(id, *body.Log)
+		}
+		job, err := GetJob(id)
+		if err != nil {
+			s.respondWithError(w, "Job not found", http.StatusNotFound)
+			return
+		}
+		s.respondWithJSON(w, job)
+
+	case r.Method == http.MethodGet && action == "status":
+		job, err := GetJob(id)
+		if err != nil {
+			s.respondWithError(w, "Job not found", http.StatusNotFound)
+			return
+		}
+		s.respondWithJSON(w, map[string]interface{}{
+			"status": job.Status,
+			"logs":   job.Logs,
+		})
+
+	case r.Method == http.MethodGet && action == "result":
+		job, err := GetJob(id)
+		if err != nil {
+			s.respondWithError(w, "Job not found", http.StatusNotFound)
+			return
+		}
+		if job.Status != "completed" {
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": job.Status})
+			return
+		}
+		s.respondWithJSON(w, map[string]string{"result": job.Result})
+
+	default:
+		http.NotFound(w, r)
+	}
+}
+
 // -------------------- Config helpers & main --------------------
 
 func getEnvOrDefault(key, defaultValue string) string {
@@ -944,6 +1044,11 @@ func loadConfig() *Config {
 }
 
 func main() {
+	// Initialize DB and security
+	if err := InitDB(); err != nil {
+		log.Fatalf("failed to initialize DB: %v", err)
+	}
+
 	config := loadConfig()
 	server := NewServer(config)
 
@@ -954,13 +1059,18 @@ func main() {
 	mux.HandleFunc("/api/analyze", server.withMiddleware(server.handleAPIAnalyze))
 	mux.HandleFunc("/api/tools/discover", server.withMiddleware(server.handleToolsDiscovery))
 	mux.HandleFunc("/tools/execute", server.withMiddleware(server.handleToolsExecute))
+	mux.HandleFunc("/jobs", server.withMiddleware(server.handleJobCreate))
+	mux.HandleFunc("/jobs/", server.withMiddleware(server.handleJobRoutes))
 	mux.HandleFunc("/health", server.withMiddleware(server.handleHealth))
 	mux.HandleFunc("/info", server.withMiddleware(server.handleServerInfo))
 	mux.HandleFunc("/examples", server.withMiddleware(server.handleExamples))
 
+	// Wrap everything with SecurityMiddleware
+	secured := SecurityMiddleware(mux)
+
 	httpServer := &http.Server{
 		Addr:         ":" + config.Port,
-		Handler:      mux,
+		Handler:      secured,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

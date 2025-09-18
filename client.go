@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -14,6 +15,7 @@ type FinancialAnalysisClient struct {
 	BaseURL    string
 	Timeout    time.Duration
 	SessionID  string
+	APIKey     string
 	httpClient *http.Client
 }
 
@@ -25,12 +27,19 @@ func NewClient(baseURL, sessionID string, timeoutSeconds int) *FinancialAnalysis
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("client_session_%d", time.Now().Unix())
 	}
+	apiKey := os.Getenv("API_KEY")
 	return &FinancialAnalysisClient{
 		BaseURL:    baseURL,
 		Timeout:    time.Duration(timeoutSeconds) * time.Second,
 		SessionID:  sessionID,
+		APIKey:     apiKey,
 		httpClient: &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
 	}
+}
+
+// SetAPIKey allows overriding the API key after client creation
+func (c *FinancialAnalysisClient) SetAPIKey(apiKey string) {
+	c.APIKey = apiKey
 }
 
 // generic request function
@@ -50,6 +59,9 @@ func (c *FinancialAnalysisClient) makeRequest(method, endpoint string, body inte
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Session-ID", c.SessionID)
+	if strings.TrimSpace(c.APIKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
