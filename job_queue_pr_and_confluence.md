@@ -1,5 +1,3 @@
-# Pull Request: Postgres job queue + logs table, secured endpoints, FastAPI worker, client auth
-
 ## Summary
 Integrates a Postgres-backed job queue with discrete log entries (`job_logs`), normalizes job endpoints, and enables auth/rate-limiting. Adds a FastAPI worker endpoint for async processing and updates the Go client to include Authorization headers.
 
@@ -101,13 +99,3 @@ Flow:
 ## Security
 - Authorization: `Bearer <API_KEY>` on all requests to Go server.
 - Rate limiting: 5 requests/min per client IP.
-
-## Testing steps
-- Apply migrations (001 then 002).
-- Start services and submit a job; poll status and result.
-- Verify logs are appended in order and `updated_at` is maintained.
-
-## Follow-ups
-- Add a migration runner (e.g., `golang-migrate`) for CI/CD.
-- Enhance rate limiting (token bucket/sliding window).
-- E2E tests around worker retry/failure paths.
