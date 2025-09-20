@@ -127,9 +127,16 @@ This runs uvicorn with app on 0.0.0.0:8000.
 - PYTHON_PORT=8000
 - TIMEOUT_SECONDS=30
 
-3. Run the Go server (port 8080)
+3. Build the Go executables (optional, for production)
+
+- Server: `go build server.go jobqueue.go security.go` (creates `fincli` executable)
+- CLI: `go build cli.go client.go` (creates `fincli` executable; rename to `cli` to avoid conflict)
+
+4. Run the Go server (port 8080)
 
 go run server.go
+
+Or use the built executable: `./fincli`
 
 The Go server expects the Python server to be reachable at PYTHON_HOST:PYTHON_PORT.
 

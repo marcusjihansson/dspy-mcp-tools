@@ -98,7 +98,7 @@ type Session struct {
 	ID        string
 	CreatedAt time.Time
 	LastUsed  time.Time
-	Client    *FinancialAnalysisClient
+	Client    *FastAPIClient
 	mutex     sync.RWMutex
 }
 
@@ -127,7 +127,7 @@ func (sm *SessionManager) GetOrCreateSession(sessionID string) (*Session, error)
 
 	session, exists := sm.sessions[sessionID]
 	if !exists {
-		client := NewFinancialAnalysisClient(
+		client := NewFastAPIClient(
 			fmt.Sprintf("http://%s:%s", sm.config.PythonHost, sm.config.PythonPort),
 		)
 		session = &Session{
@@ -221,9 +221,9 @@ func (s *Server) respondWithError(w http.ResponseWriter, message string, code in
 	})
 }
 
-// -------------------- FinancialAnalysisClient --------------------
+// -------------------- FastAPIClient --------------------
 
-type FinancialAnalysisClient struct {
+type FastAPIClient struct {
 	FastAPIURL    string
 	HTTPClient    *http.Client
 	toolsCache    map[string]MCPTool
@@ -231,8 +231,8 @@ type FinancialAnalysisClient struct {
 	mutex         sync.RWMutex
 }
 
-func NewFinancialAnalysisClient(fastAPIURL string) *FinancialAnalysisClient {
-	return &FinancialAnalysisClient{
+func NewFastAPIClient(fastAPIURL string) *FastAPIClient {
+	return &FastAPIClient{
 		FastAPIURL: fastAPIURL,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -246,7 +246,7 @@ func NewFinancialAnalysisClient(fastAPIURL string) *FinancialAnalysisClient {
 	}
 }
 
-func (c *FinancialAnalysisClient) ListMCPTools() (*MCPListToolsResponse, error) {
+func (c *FastAPIClient) ListMCPTools() (*MCPListToolsResponse, error) {
 	c.mutex.RLock()
 	if time.Now().Before(c.toolsCacheExp) && len(c.toolsCache) > 0 {
 		tools := make([]MCPTool, 0, len(c.toolsCache))
@@ -289,7 +289,7 @@ func (c *FinancialAnalysisClient) ListMCPTools() (*MCPListToolsResponse, error) 
 	return &toolsResponse, nil
 }
 
-func (c *FinancialAnalysisClient) CallMCPTool(toolName string, arguments map[string]interface{}) (*MCPCallToolResponse, error) {
+func (c *FastAPIClient) CallMCPTool(toolName string, arguments map[string]interface{}) (*MCPCallToolResponse, error) {
 	reqBody := MCPCallToolRequest{
 		Name:      toolName,
 		Arguments: arguments,
@@ -315,7 +315,7 @@ func (c *FinancialAnalysisClient) CallMCPTool(toolName string, arguments map[str
 }
 
 // executeTools calls the Python /tools/execute (legacy bulk execution)
-func (c *FinancialAnalysisClient) executeTools(tools []string, parameters map[string]interface{}, executionMode string) (*ExecutionResponse, error) {
+func (c *FastAPIClient) executeTools(tools []string, parameters map[string]interface{}, executionMode string) (*ExecutionResponse, error) {
 	reqBody := ToolExecutionRequest{
 		Tools:         tools,
 		Parameters:    parameters,
@@ -345,7 +345,7 @@ func (c *FinancialAnalysisClient) executeTools(tools []string, parameters map[st
 }
 
 // analyzeQuery for delegating to Python /query/analyze
-func (c *FinancialAnalysisClient) analyzeQuery(query string, executionMode string) (*QueryAnalysisResponse, error) {
+func (c *FastAPIClient) analyzeQuery(query string, executionMode string) (*QueryAnalysisResponse, error) {
 	reqBody := QueryRequest{
 		Query:         query,
 		ExecutionMode: executionMode,
@@ -374,7 +374,7 @@ func (c *FinancialAnalysisClient) analyzeQuery(query string, executionMode strin
 }
 
 // AnalyzeAndExecute (legacy) - returns ExecutionResponse
-func (c *FinancialAnalysisClient) AnalyzeAndExecute(query string, executionMode string) (*ExecutionResponse, error) {
+func (c *FastAPIClient) AnalyzeAndExecute(query string, executionMode string) (*ExecutionResponse, error) {
 	analysis, err := c.analyzeQuery(query, executionMode)
 	if err != nil {
 		return nil, fmt.Errorf("query analysis failed: %w", err)
@@ -389,7 +389,7 @@ func (c *FinancialAnalysisClient) AnalyzeAndExecute(query string, executionMode 
 }
 
 // Enhanced Analyze + detailed report
-func (c *FinancialAnalysisClient) AnalyzeAndExecuteWithReport(query string, executionMode string, sessionID string) (*QueryAnalysisReport, error) {
+func (c *FastAPIClient) AnalyzeAndExecuteWithReport(query string, executionMode string, sessionID string) (*QueryAnalysisReport, error) {
 	startTime := time.Now()
 	analysis, err := c.analyzeQuery(query, executionMode)
 	if err != nil {
@@ -431,7 +431,7 @@ func parseMCPContentItem(content map[string]interface{}) map[string]interface{} 
 	return content
 }
 
-func (c *FinancialAnalysisClient) executeToolsWithDetails(tools []string, parameters map[string]interface{}, executionMode string) ([]ToolExecutionResult, error) {
+func (c *FastAPIClient) executeToolsWithDetails(tools []string, parameters map[string]interface{}, executionMode string) ([]ToolExecutionResult, error) {
 	var results []ToolExecutionResult
 
 	if len(tools) == 0 {
@@ -577,7 +577,7 @@ func extractKeyFindingsFromResult(m map[string]interface{}) []string {
 	return findings
 }
 
-func (c *FinancialAnalysisClient) generateAnalysisReport(query string, sessionID string, executionMode string, toolResults []ToolExecutionResult, totalTime time.Duration) *QueryAnalysisReport {
+func (c *FastAPIClient) generateAnalysisReport(query string, sessionID string, executionMode string, toolResults []ToolExecutionResult, totalTime time.Duration) *QueryAnalysisReport {
 	report := &QueryAnalysisReport{
 		Query:         query,
 		SessionID:     sessionID,
